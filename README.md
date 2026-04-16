@@ -16,26 +16,42 @@ SQLiteExpress mirrors the API of [MySqlExpress](https://github.com/adriancs2/MyS
 
 ## Contents
 
+**Getting Started**
+
 - [The Design](#the-design)
 - [Install](#install)
 - [Quick Start](#quick-start)
-- [Select](#select)
-- [Execute](#execute)
-- [ExecuteScalar](#executescalar)
+- [A note on Dictionary syntax](#a-note-on-dictionary-syntax)
+
+**SQLiteExpress Highlights**
+
 - [Insert](#insert)
-- [Update](#update)
-- [InsertOrReplace](#insertorreplace)
-- [InsertUpdate (Upsert)](#insertupdate-upsert)
-- [Save / SaveList](#save--savelist)
 - [GetObject / GetObjectList](#getobject--getobjectlist)
+- [InsertUpdate (Upsert)](#insertupdate-upsert)
+- [Update](#update)
+- [Code Generation](#code-generation)
+
+**More API**
+
+- [Save / SaveList](#save--savelist)
+- [InsertOrReplace](#insertorreplace)
+- [Transactions (Begin / Commit / Rollback)](#transactions-begin--commit--rollback)
+- [Select](#select)
+- [ExecuteScalar](#executescalar)
+- [Execute (any SQL)](#execute-any-sql)
+- [Select (any SQL)](#select-any-sql)
+
+**Reference**
+
 - [Class Field Binding Modes](#class-field-binding-modes)
-- [Transactions](#transactions)
 - [String Helpers](#string-helpers)
 - [Table Operations (DDL)](#table-operations-ddl)
 - [Attach / Detach Databases](#attach--detach-databases)
 - [DB Info](#db-info)
-- [Code Generation](#code-generation)
 - [Supported Data Types](#supported-data-types)
+
+**About**
+
 - [Relationship with SQLiteHelper](#relationship-with-sqlitehelper)
 - [License](#license)
 
@@ -127,67 +143,41 @@ using (SQLiteConnection conn = new SQLiteConnection(connStr))
 
 ---
 
-## Select
+## A note on Dictionary syntax
 
-`Select` returns a `DataTable`.
+Throughout this README, most examples build dictionaries with the indexer-initializer form (`["key"] = value`). C# gives you a few equivalent ways to write the same thing — use whichever your fingers prefer:
 
 ```csharp
-// All rows
-DataTable dt = s.Select("select * from player;");
-
-// With a dictionary of parameters
-DataTable dt2 = s.Select(
-    "select * from player where id = @vid;",
-    new Dictionary<string, object> { ["@vid"] = 1 });
-
-// With an explicit list of SQLiteParameter
-List<SQLiteParameter> plist = new List<SQLiteParameter>
+// Style 1 — indexer initializer (used in this README)
+var dic = new Dictionary<string, object>
 {
-    new SQLiteParameter("@name", "John"),
+    ["id"]    = 1,
+    ["name"]  = "John",
+    ["score"] = 100,
 };
-DataTable dt3 = s.Select("select * from player where name = @name;", plist);
+
+// Style 2 — collection initializer
+var dic = new Dictionary<string, object>
+{
+    { "id", 1 },
+    { "name", "John" },
+    { "score", 100 },
+};
+
+// Style 3 — plain assignment
+var dic = new Dictionary<string, object>();
+dic["id"]    = 1;
+dic["name"]  = "John";
+dic["score"] = 100;
 ```
 
----
-
-## Execute
-
-`Execute` runs any non-query statement (DDL, `INSERT/UPDATE/DELETE` written by hand, pragmas, etc.).
-
-```csharp
-s.Execute("create index if not exists idx_player_name on player(name);");
-
-s.Execute(
-    "delete from player where id = @vid;",
-    new Dictionary<string, object> { ["@vid"] = 5 });
-```
-
----
-
-## ExecuteScalar
-
-Returns a single value. The generic form converts for you.
-
-```csharp
-int count       = s.ExecuteScalar<int>("select count(*) from player;");
-string name     = s.ExecuteScalar<string>("select name from player where id = 1;");
-decimal total   = s.ExecuteScalar<decimal>("select sum(score) from player;");
-DateTime when   = s.ExecuteScalar<DateTime>("select date_register from player where id = 1;");
-
-// Non-generic returns object
-object raw = s.ExecuteScalar("select count(*) from player;");
-
-// With parameters
-long age = s.ExecuteScalar<long>(
-    "select age from player where name = @n;",
-    new Dictionary<string, object> { ["@n"] = "alice" });
-```
+All three produce the same `Dictionary<string, object>`. SQLiteExpress doesn't care which you pick.
 
 ---
 
 ## Insert
 
-`Insert` takes a table name and a `Dictionary<string, object>` of column → value.
+Dictionary-based. Pass a table name and a `Dictionary<string, object>` of column → value. SQLiteExpress builds the parameterized `INSERT`, handles type conversion, and you're done.
 
 ```csharp
 Dictionary<string, object> dic = new Dictionary<string, object>
@@ -207,54 +197,39 @@ long newId = s.LastInsertId; // SELECT last_insert_rowid()
 
 ---
 
-## Update
+## GetObject / GetObjectList
 
-The default `Update` overloads append `LIMIT 1` for safety. Pass `updateSingleRow: false` to remove that cap.
-
-```csharp
-// 1) Single-column condition (updates one matching row)
-Dictionary<string, object> data = new Dictionary<string, object>
-{
-    ["name"] = "John Smith Updated",
-    ["tel"]  = "0999888777",
-};
-s.Update("player", data, "id", 1);
-
-// 2) Same, but update every matching row
-s.Update("player", data, "status", 1, updateSingleRow: false);
-
-// 3) Multi-column condition
-Dictionary<string, object> cond = new Dictionary<string, object>
-{
-    ["status"] = 1,
-    ["tel"]    = "0123456789",
-};
-s.Update("player", data, cond);
-
-// 4) Multi-column condition, no LIMIT 1
-s.Update("player", data, cond, updateSingleRow: false);
-```
-
----
-
-## InsertOrReplace
-
-Replaces the **entire row** on primary key conflict. Uses SQLite's `INSERT OR REPLACE`.
+Bind a single row to an object, or a result set straight into a `List<T>`. Column names are matched against both fields and properties — no attributes, no ceremony.
 
 ```csharp
-s.InsertOrReplace("player", new Dictionary<string, object>
-{
-    ["id"]    = 1,
-    ["name"]  = "John",
-    ["score"] = 100,
-});
+// Single row
+obPlayer p = s.GetObject<obPlayer>("select * from player where id = 1;");
+
+// With parameters
+obPlayer p2 = s.GetObject<obPlayer>(
+    "select * from player where id = @vid;",
+    new Dictionary<string, object> { ["@vid"] = 1 });
+
+// Into an existing instance
+obPlayer p3 = new obPlayer();
+s.GetObject("select * from player where id = 1;", p3);
+
+// List
+List<obPlayer> lst = s.GetObjectList<obPlayer>("select * from player;");
+
+// List with LIKE filter
+List<obPlayer> matches = s.GetObjectList<obPlayer>(
+    "select * from player where name like @vname;",
+    new Dictionary<string, object> { ["@vname"] = "%adam%" });
 ```
+
+See [Class Field Binding Modes](#class-field-binding-modes) for the supported POCO styles.
 
 ---
 
 ## InsertUpdate (Upsert)
 
-Updates **only specific columns** on conflict. Uses SQLite's `ON CONFLICT DO UPDATE` (requires SQLite 3.24+). Primary key columns are auto-detected from `pragma table_info`.
+Insert a row — and if the primary key already exists, update **only specific columns**. Uses SQLite's `ON CONFLICT DO UPDATE` (requires SQLite 3.24+). Primary key columns are auto-detected from `pragma table_info`.
 
 ```csharp
 List<string> lstUpdateCol = new List<string> { "score", "level", "status" };
@@ -285,6 +260,79 @@ s.InsertUpdate("player_team", dic, lstCols, include: false);
 
 ---
 
+## Update
+
+The default `Update` overloads append `LIMIT 1` for safety — the most common bug in hand-written SQL is an `UPDATE` without a proper `WHERE`, and this catches it. Pass `updateSingleRow: false` when you genuinely want to update multiple rows.
+
+```csharp
+// 1) Single-column condition (updates one matching row)
+Dictionary<string, object> data = new Dictionary<string, object>
+{
+    ["name"] = "John Smith Updated",
+    ["tel"]  = "0999888777",
+};
+s.Update("player", data, "id", 1);
+
+// 2) Same, but update every matching row
+s.Update("player", data, "status", 1, updateSingleRow: false);
+
+// 3) Multi-column condition
+Dictionary<string, object> cond = new Dictionary<string, object>
+{
+    ["status"] = 1,
+    ["tel"]    = "0123456789",
+};
+s.Update("player", data, cond);
+
+// 4) Multi-column condition, no LIMIT 1
+s.Update("player", data, cond, updateSingleRow: false);
+```
+
+---
+
+## Code Generation
+
+Connect to a database and let SQLiteExpress write boilerplate for you. `FieldsOutputType` is a top-level enum in `System.Data.SQLite`.
+
+```csharp
+// Generate class fields from a table
+string code = s.GenerateTableClassFields(
+    "player", FieldsOutputType.PrivateFielsPublicProperties);
+
+// Generate from a custom SELECT (joins, aliases, projections)
+string joinCode = s.GenerateCustomClassField(
+    "select a.*, b.year from player a inner join player_team b on a.id = b.player_id;",
+    FieldsOutputType.PublicProperties);
+
+// Dictionary template for Insert
+string dicCode = s.GenerateTableDictionaryEntries("player");
+// Dictionary<string, object> dic = new Dictionary<string, object>();
+//
+//             dic["id"] =
+//             dic["code"] =
+//             dic["name"] =
+//             ...
+
+// Parameter dictionary template
+string paramCode = s.GenerateParameterDictionaryTable("player");
+
+// Update column list (all non-PK columns) — feeds straight into InsertUpdate
+string updateCols = s.GenerateUpdateColumnList("player_team");
+
+// The CREATE TABLE SQL that SQLite stored
+string createSql = s.GetCreateTableSql("player");
+```
+
+`FieldsOutputType` values:
+
+| Value                          | Output                                          |
+| ------------------------------ | ----------------------------------------------- |
+| `PrivateFielsPublicProperties` | Private backing fields + public properties      |
+| `PublicProperties`             | Public auto-properties only                     |
+| `PublicFields`                 | Public fields only                              |
+
+---
+
 ## Save / SaveList
 
 Reflection-based wrappers that map a class object to a `Dictionary<string, object>` and call `InsertOrReplace`. Field and property names must match the column names.
@@ -305,31 +353,128 @@ s.SaveList("player", lst);
 
 ---
 
-## GetObject / GetObjectList
+## InsertOrReplace
 
-Bind a single row to an object, or a result set to a `List<T>`. Column names are matched against both fields and properties.
+Replaces the **entire row** on primary key conflict. Uses SQLite's `INSERT OR REPLACE`. Use this when you want the new row to fully overwrite the old one; use [`InsertUpdate`](#insertupdate-upsert) when you only want to update specific columns on conflict.
 
 ```csharp
-// Single row
-obPlayer p = s.GetObject<obPlayer>("select * from player where id = 1;");
+s.InsertOrReplace("player", new Dictionary<string, object>
+{
+    ["id"]    = 1,
+    ["name"]  = "John",
+    ["score"] = 100,
+});
+```
 
-// With parameters
-obPlayer p2 = s.GetObject<obPlayer>(
+---
+
+## Transactions (Begin / Commit / Rollback)
+
+If you're doing more than one write, wrap it in a transaction. Two big reasons:
+
+**1. Data safety.** Either everything succeeds, or nothing does. If the second insert throws, the first one won't be left stranded in the database. Your tables stay in a consistent state.
+
+**2. Speed.** SQLite commits to disk at the end of every statement by default. 1000 inserts = 1000 disk flushes. Inside a transaction, SQLite batches the flush into a single commit at the end. The difference is not subtle — bulk inserts commonly run **10×–100× faster** inside a transaction.
+
+```csharp
+try
+{
+    s.BeginTransaction();
+
+    s.Insert("player", dic1);
+    s.Insert("player", dic2);
+    s.Update("player", data, "id", 1);
+
+    s.Commit();
+}
+catch
+{
+    s.Rollback();
+    throw;
+}
+```
+
+**Without a transaction:** each `Insert` / `Update` / `Execute` is its own auto-committed unit. A crash halfway through leaves partial data. Bulk operations are slow.
+
+**With a transaction:** the whole block behaves as one atomic operation. `Commit` makes all changes permanent; `Rollback` discards them. Always pair `BeginTransaction` with a `try / catch` that calls `Rollback` on failure.
+
+> Rule of thumb: any time you write more than one row — or any time a write depends on a previous write — use a transaction.
+
+---
+
+## Select
+
+`Select` returns a `DataTable`.
+
+```csharp
+// All rows
+DataTable dt = s.Select("select * from player;");
+
+// With a dictionary of parameters
+DataTable dt2 = s.Select(
     "select * from player where id = @vid;",
     new Dictionary<string, object> { ["@vid"] = 1 });
 
-// Into an existing instance
-obPlayer p3 = new obPlayer();
-s.GetObject("select * from player where id = 1;", p3);
-
-// List
-List<obPlayer> lst = s.GetObjectList<obPlayer>("select * from player;");
-
-// List with LIKE filter
-List<obPlayer> matches = s.GetObjectList<obPlayer>(
-    "select * from player where name like @vname;",
-    new Dictionary<string, object> { ["@vname"] = "%adam%" });
+// With an explicit list of SQLiteParameter
+List<SQLiteParameter> plist = new List<SQLiteParameter>
+{
+    new SQLiteParameter("@name", "John"),
+};
+DataTable dt3 = s.Select("select * from player where name = @name;", plist);
 ```
+
+---
+
+## ExecuteScalar
+
+Returns a single value. The generic form converts for you.
+
+```csharp
+int count       = s.ExecuteScalar<int>("select count(*) from player;");
+string name     = s.ExecuteScalar<string>("select name from player where id = 1;");
+decimal total   = s.ExecuteScalar<decimal>("select sum(score) from player;");
+DateTime when   = s.ExecuteScalar<DateTime>("select date_register from player where id = 1;");
+
+// Non-generic returns object
+object raw = s.ExecuteScalar("select count(*) from player;");
+
+// With parameters
+long age = s.ExecuteScalar<long>(
+    "select age from player where name = @n;",
+    new Dictionary<string, object> { ["@n"] = "alice" });
+```
+
+---
+
+## Execute (any SQL)
+
+`Execute` runs any non-query statement — DDL, hand-written `INSERT/UPDATE/DELETE`, pragmas, anything that doesn't return rows.
+
+```csharp
+s.Execute("create index if not exists idx_player_name on player(name);");
+
+s.Execute(
+    "delete from player where id = @vid;",
+    new Dictionary<string, object> { ["@vid"] = 5 });
+```
+
+---
+
+## Select (any SQL)
+
+`Select` is the escape hatch for anything — joins, CTEs, window functions, pragmas that return rows. You write the SQL, SQLiteExpress parameterizes it and hands you a `DataTable`.
+
+```csharp
+DataTable dt = s.Select(@"
+    select a.id, a.name, b.year, b.score
+    from player a
+    inner join player_team b on a.id = b.player_id
+    where b.year = @year
+    order by b.score desc;",
+    new Dictionary<string, object> { ["@year"] = 2024 });
+```
+
+Pair it with [`GetObjectList<T>`](#getobject--getobjectlist) when you'd rather have strongly-typed objects than a `DataTable`.
 
 ---
 
@@ -377,28 +522,6 @@ public class obPlayer
     public int id = 0;
     public string name = "";
     public DateTime date_register = DateTime.MinValue;
-}
-```
-
----
-
-## Transactions
-
-```csharp
-try
-{
-    s.BeginTransaction();
-
-    s.Insert("player", dic1);
-    s.Insert("player", dic2);
-    s.Update("player", data, "id", 1);
-
-    s.Commit();
-}
-catch
-{
-    s.Rollback();
-    throw;
 }
 ```
 
@@ -500,49 +623,6 @@ List<string> tables = s.GetTableList();          // table names (excludes sqlite
 DataTable cols      = s.GetColumnStatus("player"); // pragma table_info(player)
 DataTable dbs       = s.ShowDatabase();          // pragma database_list
 ```
-
----
-
-## Code Generation
-
-Connect to a database and let SQLiteExpress write boilerplate for you. `FieldsOutputType` is a top-level enum in `System.Data.SQLite`.
-
-```csharp
-// Generate class fields from a table
-string code = s.GenerateTableClassFields(
-    "player", FieldsOutputType.PrivateFielsPublicProperties);
-
-// Generate from a custom SELECT (joins, aliases, projections)
-string joinCode = s.GenerateCustomClassField(
-    "select a.*, b.year from player a inner join player_team b on a.id = b.player_id;",
-    FieldsOutputType.PublicProperties);
-
-// Dictionary template for Insert
-string dicCode = s.GenerateTableDictionaryEntries("player");
-// Dictionary<string, object> dic = new Dictionary<string, object>();
-//
-//             dic["id"] =
-//             dic["code"] =
-//             dic["name"] =
-//             ...
-
-// Parameter dictionary template
-string paramCode = s.GenerateParameterDictionaryTable("player");
-
-// Update column list (all non-PK columns) — feeds straight into InsertUpdate
-string updateCols = s.GenerateUpdateColumnList("player_team");
-
-// The CREATE TABLE SQL that SQLite stored
-string createSql = s.GetCreateTableSql("player");
-```
-
-`FieldsOutputType` values:
-
-| Value                          | Output                                          |
-| ------------------------------ | ----------------------------------------------- |
-| `PrivateFielsPublicProperties` | Private backing fields + public properties      |
-| `PublicProperties`             | Public auto-properties only                     |
-| `PublicFields`                 | Public fields only                              |
 
 ---
 
