@@ -88,9 +88,9 @@ using (SQLiteConnection conn = new SQLiteConnection(connString))
 
 SQLiteExpress is a set of single `.cs` files. There is no NuGet package to install for SQLiteExpress itself — you drop the source into your project.
 
-**Step 1.** Install the `System.Data.SQLite` dependency:
+**Step 1.** Install the one of the following `System.Data.SQLite` dependency:
 
-| Target                  | NuGet Package                                                                                                      |
+| Target Options          | NuGet Package                                                                                                      |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | .NET Framework          | [Stub.System.Data.SQLite.Core.NetFramework](https://www.nuget.org/packages/Stub.System.Data.SQLite.Core.NetFramework) |
 | .NET Standard / .NET 6+ | [Stub.System.Data.SQLite.Core.NetStandard](https://www.nuget.org/packages/Stub.System.Data.SQLite.Core.NetStandard)  |
